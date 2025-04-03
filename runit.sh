@@ -47,10 +47,12 @@ tar -xzf executor-linux-*.tar.gz
 cd executor/executor/bin || exit 1
 
 cat <<EOF | sudo tee "$ENV_FILE" >/dev/null
+
 RPC_ENDPOINTS='{
   "l2rn": ["https://t3rn-b2n.blockpi.network/v1/rpc/public", "https://b2n.rpc.caldera.xyz/http"],
   "arbt": ["https://arbitrum-sepolia.drpc.org", "https://arb-sepolia.g.alchemy.com/v2/$APIKEY_ALCHEMY"],
   "bast": ["https://base-sepolia-rpc.publicnode.com", "https://base-sepolia.g.alchemy.com/v2/$APIKEY_ALCHEMY"],
+  "blst": ["https://sepolia.blast.io", "https://blast-sepolia.g.alchemy.com/v2/$APIKEY_ALCHEMY"],
   "opst": ["https://sepolia.optimism.io", "https://opt-sepolia.g.alchemy.com/v2/$APIKEY_ALCHEMY"],
   "unit": ["https://unichain-sepolia.drpc.org", "https://unichain-sepolia.g.alchemy.com/v2/$APIKEY_ALCHEMY"]
 }'
