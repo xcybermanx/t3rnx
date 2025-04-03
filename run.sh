@@ -31,7 +31,7 @@ sudo apt update && sudo apt upgrade -y
 read -p "Enter PRIVATE_KEY_LOCAL: " PRIVATE_KEY_LOCAL
 [[ -z "$PRIVATE_KEY_LOCAL" ]] && { log "ERROR" "PRIVATE_KEY_LOCAL cannot be empty!"; exit 1; }
 
-read -p "Masukkan APIKEY_ALCHEMY: " APIKEY_ALCHEMY
+read -p "Enter APIKEY_ALCHEMY: " APIKEY_ALCHEMY
 [[ -z "$APIKEY_ALCHEMY" ]] && { log "ERROR" "APIKEY_ALCHEMY cannot be empty!"; exit 1; }
 
 INSTALL_DIR="$HOME/t3rn-v2"
