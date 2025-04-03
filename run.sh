@@ -28,11 +28,11 @@ log() {
 log "INFO" "1. Update system"
 sudo apt update && sudo apt upgrade -y
 
-read -p "Masukkan PRIVATE_KEY_LOCAL: " PRIVATE_KEY_LOCAL
-[[ -z "$PRIVATE_KEY_LOCAL" ]] && { log "ERROR" "PRIVATE_KEY_LOCAL tidak boleh kosong!"; exit 1; }
+read -p "Enter PRIVATE_KEY_LOCAL: " PRIVATE_KEY_LOCAL
+[[ -z "$PRIVATE_KEY_LOCAL" ]] && { log "ERROR" "PRIVATE_KEY_LOCAL cannot be empty!"; exit 1; }
 
 read -p "Masukkan APIKEY_ALCHEMY: " APIKEY_ALCHEMY
-[[ -z "$APIKEY_ALCHEMY" ]] && { log "ERROR" "APIKEY_ALCHEMY tidak boleh kosong!"; exit 1; }
+[[ -z "$APIKEY_ALCHEMY" ]] && { log "ERROR" "APIKEY_ALCHEMY cannot be empty!"; exit 1; }
 
 INSTALL_DIR="$HOME/t3rn-v2"
 SERVICE_FILE="/etc/systemd/system/t3rn-executor-v2.service"
