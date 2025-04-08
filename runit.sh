@@ -9,6 +9,7 @@ NC='\033[0m'
 
 INSTALL_DIR="$HOME/t3rn-v2"
 SERVICE_FILE="/etc/systemd/system/t3rn-executor-v2.service"
+ENV_FILE="/etc/t3rn-executor-v2.env"
 CONFIG_FILE="$HOME/.t3rn_config.json"
 
 log() {
@@ -108,19 +109,20 @@ install_executor() {
 
     cd executor/executor/bin || exit 1
 
-    # Set RPC_ENDPOINTS and export it
-    RPC_ENDPOINTS='{
-        "l2rn": ["https://b2n.rpc.caldera.xyz/http"],
-        "arbt": ["https://arbitrum-sepolia.drpc.org", "https://arb-sepolia.g.alchemy.com/v2/$APIKEY_ALCHEMY"],
-        "bast": ["https://base-sepolia-rpc.publicnode.com", "https://base-sepolia.g.alchemy.com/v2/$APIKEY_ALCHEMY"],
-        "opst": ["https://sepolia.optimism.io", "https://opt-sepolia.g.alchemy.com/v2/$APIKEY_ALCHEMY"],
-        "unit": ["https://unichain-sepolia.drpc.org", "https://unichain-sepolia.g.alchemy.com/v2/$APIKEY_ALCHEMY"],
-        "mont": ["https://testnet-rpc.monad.xyz", "https://monad-testnet.g.alchemy.com/v2/$APIKEY_ALCHEMY"]
-    }'
+    # Write RPC_ENDPOINTS to the .env file
+    cat <<EOF | sudo tee "$ENV_FILE" >/dev/null
+RPC_ENDPOINTS='{
+  "l2rn": ["http://b2n.rpc.caldera.xyz/http"],
+  "arbt": ["https://arbitrum-sepolia.drpc.org", "https://arb-sepolia.g.alchemy.com/v2/$APIKEY_ALCHEMY"],
+  "bast": ["https://base-sepolia-rpc.publicnode.com", "https://base-sepolia.g.alchemy.com/v2/$APIKEY_ALCHEMY"],
+  "blst": ["https://sepolia.blast.io", "https://blast-sepolia.g.alchemy.com/v2/$APIKEY_ALCHEMY"],
+  "opst": ["https://sepolia.optimism.io", "https://opt-sepolia.g.alchemy.com/v2/$APIKEY_ALCHEMY"],
+  "mont": ["https://testnet-rpc.monad.xyz", "https://monad-testnet.g.alchemy.com/v2/$APIKEY_ALCHEMY"],
+  "unit": ["https://unichain-sepolia.drpc.org", "https://unichain-sepolia.g.alchemy.com/v2/$APIKEY_ALCHEMY"]
+}'
+EOF
 
-    export RPC_ENDPOINTS
-
-    # Write systemd service
+    # Set environment variables for the executor service
     is_port_in_use() { netstat -tuln | grep -q ":$1"; }
     PORT=9090
     while is_port_in_use $PORT; do PORT=$((PORT + 1)); done
@@ -150,7 +152,7 @@ Environment=PRIVATE_KEY_LOCAL=$PRIVATE_KEY_LOCAL
 Environment=APIKEY_ALCHEMY=$APIKEY_ALCHEMY
 Environment=ENABLED_NETWORKS=arbitrum-sepolia,base-sepolia,optimism-sepolia,l2rn,unichain-sepolia,mont
 Environment=EXECUTOR_PROCESS_PENDING_ORDERS_FROM_API=true
-Environment=RPC_ENDPOINTS=$RPC_ENDPOINTS
+EnvironmentFile=$ENV_FILE
 
 [Install]
 WantedBy=multi-user.target
