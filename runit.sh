@@ -108,6 +108,18 @@ install_executor() {
 
     cd executor/executor/bin || exit 1
 
+    # Set RPC_ENDPOINTS and export it
+    RPC_ENDPOINTS='{
+        "l2rn": ["https://t3rn-b2n.blockpi.network/v1/rpc/public", "https://b2n.rpc.caldera.xyz/http"],
+        "arbt": ["https://arbitrum-sepolia.drpc.org", "https://arb-sepolia.g.alchemy.com/v2/$APIKEY_ALCHEMY"],
+        "bast": ["https://base-sepolia-rpc.publicnode.com", "https://base-sepolia.g.alchemy.com/v2/$APIKEY_ALCHEMY"],
+        "opst": ["https://sepolia.optimism.io", "https://opt-sepolia.g.alchemy.com/v2/$APIKEY_ALCHEMY"],
+        "unit": ["https://unichain-sepolia.drpc.org", "https://unichain-sepolia.g.alchemy.com/v2/$APIKEY_ALCHEMY"],
+        "mont": ["https://testnet-rpc.monad.xyz", "https://monad-testnet.g.alchemy.com/v2/$APIKEY_ALCHEMY"]
+    }'
+
+    export RPC_ENDPOINTS
+
     # Write systemd service
     is_port_in_use() { netstat -tuln | grep -q ":$1"; }
     PORT=9090
@@ -138,6 +150,7 @@ Environment=PRIVATE_KEY_LOCAL=$PRIVATE_KEY_LOCAL
 Environment=APIKEY_ALCHEMY=$APIKEY_ALCHEMY
 Environment=ENABLED_NETWORKS=arbitrum-sepolia,base-sepolia,optimism-sepolia,l2rn,unichain-sepolia,mont
 Environment=EXECUTOR_PROCESS_PENDING_ORDERS_FROM_API=true
+Environment=RPC_ENDPOINTS=$RPC_ENDPOINTS
 
 [Install]
 WantedBy=multi-user.target
