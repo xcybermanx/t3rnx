@@ -9,7 +9,7 @@ NC='\033[0m'
 
 INSTALL_DIR="$HOME/t3rn-v2"
 SERVICE_FILE="/etc/systemd/system/t3rn-executor-v2.service"
-ENV_FILE="/etc/t3rn-executor-v2.env"
+CONFIG_FILE="$HOME/.t3rn_config.json"
 
 log() {
     local level=$1
@@ -33,25 +33,28 @@ log "INFO" "1. Update system"
 sudo apt update && sudo apt upgrade -y
 
 # Handle credentials
-if [[ -f "$ENV_FILE" ]]; then
-    source "$ENV_FILE"
-    log "INFO" "Previous credentials detected."
-
-    echo -e "${CYAN}Do you want to reuse the saved PRIVATE_KEY_LOCAL and APIKEY_ALCHEMY? (y/n)${NC}"
-    read -r reuse_keys
+if [[ -f "$CONFIG_FILE" ]]; then
+    log "INFO" "Credentials file detected."
+    read -p "Do you want to reuse the saved PRIVATE_KEY_LOCAL and APIKEY_ALCHEMY? (y/n): " reuse_keys
 
     if [[ "$reuse_keys" == "y" || "$reuse_keys" == "Y" ]]; then
+        PRIVATE_KEY_LOCAL=$(jq -r '.PRIVATE_KEY_LOCAL' "$CONFIG_FILE")
+        APIKEY_ALCHEMY=$(jq -r '.APIKEY_ALCHEMY' "$CONFIG_FILE")
         if [[ -z "$PRIVATE_KEY_LOCAL" || -z "$APIKEY_ALCHEMY" ]]; then
             log "ERROR" "Saved values are incomplete. You must enter new ones."
-        else
-            log "SUCCESS" "Using saved credentials."
+            exit 1
         fi
+        log "SUCCESS" "Using saved credentials."
     else
         read -p "Enter PRIVATE_KEY_LOCAL: " PRIVATE_KEY_LOCAL
         [[ -z "$PRIVATE_KEY_LOCAL" ]] && { log "ERROR" "PRIVATE_KEY_LOCAL cannot be empty!"; exit 1; }
 
         read -p "Enter APIKEY_ALCHEMY: " APIKEY_ALCHEMY
         [[ -z "$APIKEY_ALCHEMY" ]] && { log "ERROR" "APIKEY_ALCHEMY cannot be empty!"; exit 1; }
+
+        # Save credentials in the config file
+        echo "{\"PRIVATE_KEY_LOCAL\":\"$PRIVATE_KEY_LOCAL\", \"APIKEY_ALCHEMY\":\"$APIKEY_ALCHEMY\"}" > "$CONFIG_FILE"
+        log "SUCCESS" "Credentials saved to $CONFIG_FILE"
     fi
 else
     read -p "Enter PRIVATE_KEY_LOCAL: " PRIVATE_KEY_LOCAL
@@ -59,6 +62,10 @@ else
 
     read -p "Enter APIKEY_ALCHEMY: " APIKEY_ALCHEMY
     [[ -z "$APIKEY_ALCHEMY" ]] && { log "ERROR" "APIKEY_ALCHEMY cannot be empty!"; exit 1; }
+
+    # Save credentials in the config file
+    echo "{\"PRIVATE_KEY_LOCAL\":\"$PRIVATE_KEY_LOCAL\", \"APIKEY_ALCHEMY\":\"$APIKEY_ALCHEMY\"}" > "$CONFIG_FILE"
+    log "SUCCESS" "Credentials saved to $CONFIG_FILE"
 fi
 
 mkdir -p "$INSTALL_DIR" && cd "$INSTALL_DIR"
@@ -87,31 +94,12 @@ fi
 
 cd executor/executor/bin || exit 1
 
-# Write .env config
-cat <<EOF | sudo tee "$ENV_FILE" >/dev/null
-PRIVATE_KEY_LOCAL=$PRIVATE_KEY_LOCAL
-APIKEY_ALCHEMY=$APIKEY_ALCHEMY
-RPC_ENDPOINTS='{
-  "l2rn": ["https://t3rn-b2n.blockpi.network/v1/rpc/public", "https://b2n.rpc.caldera.xyz/http"],
-  "arbt": ["https://arbitrum-sepolia.drpc.org", "https://arb-sepolia.g.alchemy.com/v2/$APIKEY_ALCHEMY"],
-  "bast": ["https://base-sepolia-rpc.publicnode.com", "https://base-sepolia.g.alchemy.com/v2/$APIKEY_ALCHEMY"],
-  "blst": ["https://sepolia.blast.io", "https://blast-sepolia.g.alchemy.com/v2/$APIKEY_ALCHEMY"],
-  "opst": ["https://sepolia.optimism.io", "https://opt-sepolia.g.alchemy.com/v2/$APIKEY_ALCHEMY"],
-  "unit": ["https://unichain-sepolia.drpc.org", "https://unichain-sepolia.g.alchemy.com/v2/$APIKEY_ALCHEMY"],
-  "mont": ["https://testnet-rpc.monad.xyz", "https://monad-testnet.g.alchemy.com/v2/$APIKEY_ALCHEMY"]
-
-}'
-EOF
-sudo chmod 600 "$ENV_FILE"
-sudo chown "$USER:$USER" "$ENV_FILE"
-
-# Find available port
+# Write systemd service
 is_port_in_use() { netstat -tuln | grep -q ":$1"; }
 PORT=9090
 while is_port_in_use $PORT; do PORT=$((PORT + 1)); done
 log "INFO" "Using port $PORT"
 
-# Write systemd service
 cat <<EOF | sudo tee "$SERVICE_FILE" >/dev/null
 [Unit]
 Description=t3rn Executor v2 Service
@@ -132,8 +120,9 @@ Environment=EXECUTOR_PROCESS_CLAIMS_ENABLED=true
 Environment=EXECUTOR_MAX_L3_GAS_PRICE=5000
 Environment=EXECUTOR_MIN_TX_ETH=2
 Environment=EXECUTOR_MAX_TX_GAS=2000000
+Environment=PRIVATE_KEY_LOCAL=$PRIVATE_KEY_LOCAL
+Environment=APIKEY_ALCHEMY=$APIKEY_ALCHEMY
 Environment=ENABLED_NETWORKS=arbitrum-sepolia,base-sepolia,optimism-sepolia,l2rn,unichain-sepolia,mont
-EnvironmentFile=$ENV_FILE
 Environment=EXECUTOR_PROCESS_PENDING_ORDERS_FROM_API=true
 
 [Install]
