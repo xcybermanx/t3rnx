@@ -52,9 +52,9 @@ RPC_ENDPOINTS='{
   "l2rn": ["https://t3rn-b2n.blockpi.network/v1/rpc/public", "https://b2n.rpc.caldera.xyz/http"],
   "arbt": ["https://arbitrum-sepolia.drpc.org", "https://arb-sepolia.g.alchemy.com/v2/$APIKEY_ALCHEMY"],
   "bast": ["https://base-sepolia-rpc.publicnode.com", "https://base-sepolia.g.alchemy.com/v2/$APIKEY_ALCHEMY"],
-  "blst": ["https://sepolia.blast.io", "https://blast-sepolia.g.alchemy.com/v2/$APIKEY_ALCHEMY"],
   "opst": ["https://sepolia.optimism.io", "https://opt-sepolia.g.alchemy.com/v2/$APIKEY_ALCHEMY"],
-  "unit": ["https://unichain-sepolia.drpc.org", "https://unichain-sepolia.g.alchemy.com/v2/$APIKEY_ALCHEMY"]
+  "unit": ["https://unichain-sepolia.drpc.org", "https://unichain-sepolia.g.alchemy.com/v2/$APIKEY_ALCHEMY"],
+  "mont": ["https://testnet-rpc.monad.xyz], "https://monad-testnet.g.alchemy.com/v2/$APIKEY_ALCHEMY"
 }'
 EOF
 
@@ -87,11 +87,11 @@ Environment=LOG_PRETTY=false
 Environment=EXECUTOR_PROCESS_BIDS_ENABLED=true
 Environment=EXECUTOR_PROCESS_ORDERS_ENABLED=true
 Environment=EXECUTOR_PROCESS_CLAIMS_ENABLED=true
-Environment=EXECUTOR_MAX_L3_GAS_PRICE=1000
+Environment=EXECUTOR_MAX_L3_GAS_PRICE=5000
 Environment=EXECUTOR_MIN_TX_ETH=2
 Environment=EXECUTOR_MAX_TX_GAS=2000000
 Environment=PRIVATE_KEY_LOCAL=$PRIVATE_KEY_LOCAL
-Environment=ENABLED_NETWORKS=arbitrum-sepolia,base-sepolia,optimism-sepolia,l2rn,blst,unichain-sepolia
+Environment=ENABLED_NETWORKS=arbitrum-sepolia,base-sepolia,optimism-sepolia,l2rn,unichain-sepolia,mont
 EnvironmentFile=$ENV_FILE
 Environment=EXECUTOR_PROCESS_PENDING_ORDERS_FROM_API=true
 
