@@ -9,7 +9,7 @@ NC='\033[0m'
 
 # Display banner
 curl -s https://file.winsnip.xyz/file/uploads/Logo-winsip.sh | bash
-echo "Starting Auto Install T3rn Executor v2"
+echo "T3rn Executor v2 Installer"
 sleep 2
 
 # Function for logging
@@ -23,15 +23,25 @@ log() {
         "INFO") echo -e "${CYAN}[INFO] ${timestamp} - ${message}${NC}" ;;
         "SUCCESS") echo -e "${GREEN}[SUCCESS] ${timestamp} - ${message}${NC}" ;;
         "ERROR") echo -e "${RED}[ERROR] ${timestamp} - ${message}${NC}" ;;
+        "WARNING") echo -e "${YELLOW}[WARNING] ${timestamp} - ${message}${NC}" ;;
         *) echo -e "${YELLOW}[UNKNOWN] ${timestamp} - ${message}${NC}" ;;
     esac
     echo -e "${border}\n"
 }
 
+# Function to get available versions
+get_available_versions() {
+    log "INFO" "Fetching available versions from GitHub..."
+    VERSIONS=$(curl -s https://api.github.com/repos/t3rn/executor-release/releases | jq -r '.[].tag_name' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$')
+    echo "$VERSIONS" | sort -V
+}
+
 # Function to install T3rn Executor v2
 install_executor() {
+    local VERSION=$1
+    
     log "INFO" "1. Updating system packages"
-    sudo apt update && sudo apt install -y jq
+    sudo apt update && sudo apt install -y jq curl wget
 
     read -p "Enter PRIVATE_KEY_LOCAL: " PRIVATE_KEY_LOCAL
     [[ -z "$PRIVATE_KEY_LOCAL" ]] && { log "ERROR" "PRIVATE_KEY_LOCAL cannot be empty!"; exit 1; }
@@ -45,18 +55,16 @@ install_executor() {
 
     mkdir -p "$INSTALL_DIR" && cd "$INSTALL_DIR"
 
-    # Get latest version
-    TAG=$(curl -s https://api.github.com/repos/t3rn/executor-release/releases/latest | jq -r '.tag_name')
-    [[ -z "$TAG" || "$TAG" == "null" ]] && { log "ERROR" "Failed to get latest version from GitHub!"; exit 1; }
-
-    log "INFO" "Using version: $TAG"
-
     # Download and extract
-    EXECUTOR_URL="https://github.com/t3rn/executor-release/releases/download/$TAG/executor-linux-$TAG.tar.gz"
+    EXECUTOR_URL="https://github.com/t3rn/executor-release/releases/download/$VERSION/executor-linux-$VERSION.tar.gz"
     log "INFO" "Downloading $EXECUTOR_URL"
-    wget -q --show-progress "$EXECUTOR_URL" -O "executor-linux.tar.gz"
-    tar -xzf executor-linux.tar.gz || { log "ERROR" "Failed to extract file!"; exit 1; }
-    cd executor/executor/bin || { log "ERROR" "Executor directory not found!"; exit 1; }
+    if ! wget -q --show-progress "$EXECUTOR_URL" -O "executor-linux.tar.gz"; then
+        log "ERROR" "Failed to download version $VERSION!"
+        return 1
+    fi
+    
+    tar -xzf executor-linux.tar.gz || { log "ERROR" "Failed to extract file!"; return 1; }
+    cd executor/executor/bin || { log "ERROR" "Executor directory not found!"; return 1; }
 
     # Create environment file
     cat <<EOF | sudo tee "$ENV_FILE" >/dev/null
@@ -105,7 +113,7 @@ Environment=EXECUTOR_MIN_TX_ETH=2
 Environment=EXECUTOR_MAX_TX_GAS=2000000
 Environment=PRIVATE_KEY_LOCAL=$PRIVATE_KEY_LOCAL
 Environment=NETWORKS_DISABLED=blast-sepolia
-Environment=ENABLED_NETWORKS=arbitrum-sepolia,base-sepolia,optimism-sepolia,l2rn,blst
+Environment=ENABLED_NETWORKS=arbitrum-sepolia,base-sepolia,optimism-sepolia,l2rn,unichain-sepolia,monad-testnet
 EnvironmentFile=$ENV_FILE
 Environment=EXECUTOR_PROCESS_PENDING_ORDERS_FROM_API=true
 
@@ -117,7 +125,7 @@ EOF
     sudo systemctl daemon-reload
     sudo systemctl enable --now t3rn-executor-v2.service
 
-    log "SUCCESS" "✅ T3rn Executor v2 successfully installed and running!"
+    log "SUCCESS" "✅ T3rn Executor v2 ($VERSION) successfully installed and running!"
     log "INFO" "To view logs: sudo journalctl -u t3rn-executor-v2.service -f --no-hostname -o cat"
 }
 
@@ -141,26 +149,79 @@ remove_executor() {
     log "SUCCESS" "✅ T3rn Executor v2 successfully removed!"
 }
 
+# Function to select version
+select_version() {
+    local VERSIONS=$(get_available_versions)
+    local MIN_VERSION="v0.59.0"
+    
+    # Filter versions from v0.59.0 onwards
+    local FILTERED_VERSIONS=$(echo "$VERSIONS" | awk -v min="$MIN_VERSION" '$1 >= min')
+    
+    if [ -z "$FILTERED_VERSIONS" ]; then
+        log "ERROR" "No available versions found (minimum $MIN_VERSION)"
+        exit 1
+    fi
+
+    # Add "LATEST" option
+    FILTERED_VERSIONS="LATEST\n$FILTERED_VERSIONS"
+    
+    PS3="Select a version to install (or 0 to cancel): "
+    select VERSION in $(echo -e "$FILTERED_VERSIONS"); do
+        case $VERSION in
+            "LATEST")
+                VERSION=$(curl -s https://api.github.com/repos/t3rn/executor-release/releases/latest | jq -r '.tag_name')
+                log "INFO" "Selected latest version: $VERSION"
+                break
+                ;;
+            "")
+                if [ "$REPLY" -eq 0 ]; then
+                    log "INFO" "Installation cancelled"
+                    exit 0
+                else
+                    log "ERROR" "Invalid selection"
+                    continue
+                fi
+                ;;
+            *)
+                log "INFO" "Selected version: $VERSION"
+                break
+                ;;
+        esac
+    done
+    
+    install_executor "$VERSION"
+}
+
 # Main menu
-PS3="Please select an option: "
-options=("Install T3rn Executor v2" "Remove T3rn Executor v2" "Quit")
-select opt in "${options[@]}"
-do
-    case $opt in
-        "Install T3rn Executor v2")
-            install_executor
+while true; do
+    echo -e "\n${CYAN}T3rn Executor v2 Management${NC}"
+    echo "1. Install (select version)"
+    echo "2. Install latest version"
+    echo "3. Remove"
+    echo "4. Exit"
+    read -p "Enter your choice (1-4): " choice
+
+    case $choice in
+        1)
+            select_version
             break
             ;;
-        "Remove T3rn Executor v2")
+        2)
+            VERSION=$(curl -s https://api.github.com/repos/t3rn/executor-release/releases/latest | jq -r '.tag_name')
+            log "INFO" "Installing latest version: $VERSION"
+            install_executor "$VERSION"
+            break
+            ;;
+        3)
             remove_executor
             break
             ;;
-        "Quit")
+        4)
             log "INFO" "Exiting..."
             exit 0
             ;;
-        *) 
-            log "ERROR" "Invalid option $REPLY"
+        *)
+            log "ERROR" "Invalid choice, please try again"
             ;;
     esac
 done
