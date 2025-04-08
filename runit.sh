@@ -7,6 +7,11 @@ YELLOW='\033[0;33m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
+INSTALL_DIR="$HOME/t3rn-v2"
+SERVICE_FILE="/etc/systemd/system/t3rn-executor-v2.service"
+ENV_FILE="/etc/t3rn-executor-v2.env"
+KEYS_FILE="$HOME/.t3rn_keys"
+
 log() {
     local level=$1
     local message=$2
@@ -22,77 +27,80 @@ log() {
     echo -e "${border}\n"
 }
 
-# Check if the script is running for the first time or being used for removal
-if [ ! -f "$HOME/t3rn-v2/installed" ]; then
-    # Ask the user whether they want to install or remove the service
-    echo -e "${CYAN}Do you want to install or remove the T3rn Executor v2? (install/remove):${NC}"
-    read -p "Choice: " CHOICE
+is_port_in_use() { ss -tuln | grep -q ":$1"; }
 
-    if [[ "$CHOICE" == "install" ]]; then
-        log "INFO" "Installing T3rn Executor v2..."
-        # Update system packages
-        sudo apt update && sudo apt upgrade -y
+# Function to install
+install_executor() {
+    log "INFO" "1. Updating system"
+    sudo apt update && sudo apt upgrade -y
 
-        # Ask for PRIVATE_KEY_LOCAL and APIKEY_ALCHEMY
+    mkdir -p "$INSTALL_DIR"
+    cd "$INSTALL_DIR"
+
+    # Prompt for gas price
+    read -p "Enter EXECUTOR_MAX_L3_GAS_PRICE (default 5000): " MAX_GAS_PRICE
+    MAX_GAS_PRICE=${MAX_GAS_PRICE:-5000}
+
+    # Handle Private Key and API Key storage
+    if [ -f "$KEYS_FILE" ]; then
+        echo "Saved keys found:"
+        echo -e "1) Use saved keys\n2) Enter new keys"
+        read -p "Choose option [1/2]: " key_choice
+    else
+        key_choice=2
+    fi
+
+    if [ "$key_choice" == "2" ]; then
         read -p "Enter PRIVATE_KEY_LOCAL: " PRIVATE_KEY_LOCAL
         [[ -z "$PRIVATE_KEY_LOCAL" ]] && { log "ERROR" "PRIVATE_KEY_LOCAL cannot be empty!"; exit 1; }
 
         read -p "Enter APIKEY_ALCHEMY: " APIKEY_ALCHEMY
         [[ -z "$APIKEY_ALCHEMY" ]] && { log "ERROR" "APIKEY_ALCHEMY cannot be empty!"; exit 1; }
 
-        # Ask if the user wants to store these keys securely
-        read -p "Do you want to store these keys securely? (y/n): " STORE_KEYS
+        echo "PRIVATE_KEY_LOCAL=$PRIVATE_KEY_LOCAL" > "$KEYS_FILE"
+        echo "APIKEY_ALCHEMY=$APIKEY_ALCHEMY" >> "$KEYS_FILE"
+    else
+        source "$KEYS_FILE"
+    fi
 
-        SECRETS_FILE="$HOME/.t3rn-secrets"
-        if [[ "$STORE_KEYS" == "y" ]]; then
-            # Store the private key and API key securely
-            echo "PRIVATE_KEY_LOCAL=$PRIVATE_KEY_LOCAL" > "$SECRETS_FILE"
-            echo "APIKEY_ALCHEMY=$APIKEY_ALCHEMY" >> "$SECRETS_FILE"
-            chmod 600 "$SECRETS_FILE"
-            log "INFO" "Stored keys securely in $SECRETS_FILE"
-        fi
-
-        INSTALL_DIR="$HOME/t3rn-v2"
-        SERVICE_FILE="/etc/systemd/system/t3rn-executor-v2.service"
-        ENV_FILE="/etc/t3rn-executor-v2.env"
-
-        mkdir -p "$INSTALL_DIR" && cd "$INSTALL_DIR"
-
-        TAG=$(curl -s https://api.github.com/repos/t3rn/executor-release/releases/latest | awk -F '"' '/tag_name/ {print $4}')
+    # Fetch latest release
+    TAG=$(curl -s https://api.github.com/repos/t3rn/executor-release/releases/latest | awk -F '"' '/tag_name/ {print $4}')
+    if [ -f "$INSTALL_DIR/executor-linux-$TAG.tar.gz" ]; then
+        log "INFO" "Latest version $TAG already downloaded."
+    else
         wget -q "https://github.com/t3rn/executor-release/releases/download/$TAG/executor-linux-$TAG.tar.gz"
+    fi
 
-        tar -xzf executor-linux-*.tar.gz
-        cd executor/executor/bin || exit 1
+    tar -xzf executor-linux-*.tar.gz
+    cd executor/executor/bin || exit 1
 
-        # Save RPC endpoints to the env file
-        cat <<EOF | sudo tee "$ENV_FILE" >/dev/null
+    # Prepare ENV file
+    APIKEY_ALCHEMY=$(grep "APIKEY_ALCHEMY" "$KEYS_FILE" | cut -d '=' -f2)
+    cat <<EOF | sudo tee "$ENV_FILE" >/dev/null
 RPC_ENDPOINTS='{
   "l2rn": ["http://b2n.rpc.caldera.xyz/http"],
-  "arbt": ["https://arbitrum-sepolia.drpc.org", "https://arb-sepolia.g.alchemy.com/v2/\$APIKEY_ALCHEMY"],
-  "bast": ["https://base-sepolia-rpc.publicnode.com", "https://base-sepolia.g.alchemy.com/v2/\$APIKEY_ALCHEMY"],
-  "blst": ["https://sepolia.blast.io", "https://blast-sepolia.g.alchemy.com/v2/\$APIKEY_ALCHEMY"],
-  "opst": ["https://sepolia.optimism.io", "https://opt-sepolia.g.alchemy.com/v2/\$APIKEY_ALCHEMY"],
-  "mont": ["https://testnet-rpc.monad.xyz", "https://monad-testnet.g.alchemy.com/v2/\$APIKEY_ALCHEMY"],
-  "unit": ["https://unichain-sepolia.drpc.org", "https://unichain-sepolia.g.alchemy.com/v2/\$APIKEY_ALCHEMY"]
+  "arbt": ["https://arbitrum-sepolia.drpc.org", "https://arb-sepolia.g.alchemy.com/v2/$APIKEY_ALCHEMY"],
+  "bast": ["https://base-sepolia-rpc.publicnode.com", "https://base-sepolia.g.alchemy.com/v2/$APIKEY_ALCHEMY"],
+  "blst": ["https://sepolia.blast.io", "https://blast-sepolia.g.alchemy.com/v2/$APIKEY_ALCHEMY"],
+  "opst": ["https://sepolia.optimism.io", "https://opt-sepolia.g.alchemy.com/v2/$APIKEY_ALCHEMY"],
+  "mont": ["https://testnet-rpc.monad.xyz", "https://monad-testnet.g.alchemy.com/v2/$APIKEY_ALCHEMY"],
+  "unit": ["https://unichain-sepolia.drpc.org", "https://unichain-sepolia.g.alchemy.com/v2/$APIKEY_ALCHEMY"]
 }'
 EOF
 
-        is_port_in_use() { netstat -tuln | grep -q ":$1"; }
+    # Choose free port
+    PORT=9090
+    while is_port_in_use $PORT; do PORT=$((PORT + 1)); done
+    log "INFO" "Using port $PORT"
 
-        PORT=9090
-        while is_port_in_use $PORT; do
-            PORT=$((PORT + 1))
-        done
+    sudo chown -R "$USER:$USER" "$INSTALL_DIR"
+    sudo chmod 600 "$ENV_FILE"
 
-        log "INFO" "Using port $PORT"
-
-        sudo chown -R "$USER:$USER" "$INSTALL_DIR"
-        sudo chmod 600 "$ENV_FILE"
-
-        # Create systemd service file
-        cat <<EOF | sudo tee "$SERVICE_FILE" >/dev/null
+    # Create systemd service
+    PRIVATE_KEY_LOCAL=$(grep "PRIVATE_KEY_LOCAL" "$KEYS_FILE" | cut -d '=' -f2)
+    cat <<EOF | sudo tee "$SERVICE_FILE" >/dev/null
 [Unit]
-Description=t3rn Executor v2 Service
+Description=T3rn Executor v2 Service
 After=network.target
 
 [Service]
@@ -107,51 +115,51 @@ Environment=LOG_PRETTY=false
 Environment=EXECUTOR_PROCESS_BIDS_ENABLED=true
 Environment=EXECUTOR_PROCESS_ORDERS_ENABLED=true
 Environment=EXECUTOR_PROCESS_CLAIMS_ENABLED=true
-Environment=EXECUTOR_MAX_L3_GAS_PRICE=5000
+Environment=EXECUTOR_MAX_L3_GAS_PRICE=$MAX_GAS_PRICE
 Environment=EXECUTOR_MIN_TX_ETH=2
 Environment=EXECUTOR_MAX_TX_GAS=2000000
-Environment=PRIVATE_KEY_LOCAL=${PRIVATE_KEY_LOCAL}
-Environment=APIKEY_ALCHEMY=${APIKEY_ALCHEMY}
-Environment=NETWORKS_DISABLED='blast-sepolia'
-Environment=ENABLED_NETWORKS=arbitrum-sepolia,base-sepolia,optimism-sepolia,l2rn,unichain-sepolia,mont
+Environment=PRIVATE_KEY_LOCAL=$PRIVATE_KEY_LOCAL
+Environment=ENABLED_NETWORKS=arbitrum-sepolia,base-sepolia,blast-sepolia,optimism-sepolia,l2rn,unichain-sepolia,mont
+Environment=NETWORKS_DISABLED=blast-sepolia
 Environment=EXECUTOR_PROCESS_PENDING_ORDERS_FROM_API=true
 EnvironmentFile=$ENV_FILE
-EnvironmentFile=$SECRETS_FILE
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-        sudo systemctl daemon-reload
-        sudo systemctl enable --now t3rn-executor-v2.service
+    sudo systemctl daemon-reload
+    sudo systemctl enable --now t3rn-executor-v2.service
 
-        # Mark installation as completed
-        touch "$HOME/t3rn-v2/installed"
+    log "SUCCESS" "✅ Executor v2 successfully installed and running on port $PORT!"
+    exec sudo journalctl -u t3rn-executor-v2.service -f --no-hostname -o cat
+}
 
-        log "SUCCESS" "✅ Executor v2 successfully installed and running on port $PORT!"
-        exec sudo journalctl -u t3rn-executor-v2.service -f --no-hostname -o cat
+# Function to remove
+remove_executor() {
+    log "INFO" "Stopping and removing service"
+    sudo systemctl stop t3rn-executor-v2.service || true
+    sudo systemctl disable t3rn-executor-v2.service || true
+    sudo rm -f /etc/systemd/system/t3rn-executor-v2.service
+    sudo rm -rf "$INSTALL_DIR"
+    sudo rm -f "$ENV_FILE"
+    sudo rm -f "$KEYS_FILE"
+    sudo systemctl daemon-reload
+    log "SUCCESS" "🗑️ Executor v2 has been removed successfully!"
+}
 
-    elif [[ "$CHOICE" == "remove" ]]; then
-        log "INFO" "Removing T3rn Executor v2..."
+# Menu
+clear
+echo -e "${CYAN}T3rn Executor v2 Auto Installer${NC}"
+echo "1) Install"
+echo "2) Remove"
+read -p "Choose an option [1/2]: " CHOICE
 
-        sudo systemctl stop t3rn-executor-v2.service
-        sudo systemctl disable t3rn-executor-v2.service
-        sudo rm -f /etc/systemd/system/t3rn-executor-v2.service
-        sudo rm -rf /home/$USER/t3rn-v2
-        sudo systemctl daemon-reload
-
-        # Optionally remove the secrets file
-        if [ -f "$SECRETS_FILE" ]; then
-            rm -f "$SECRETS_FILE"
-        fi
-
-        log "SUCCESS" "✅ T3rn Executor v2 successfully removed!"
-        exit 0
-    else
-        log "ERROR" "Invalid choice! Please run the script again and choose 'install' or 'remove'."
-        exit 1
-    fi
+if [ "$CHOICE" == "1" ]; then
+    install_executor
+elif [ "$CHOICE" == "2" ]; then
+    remove_executor
 else
-    log "ERROR" "The script has already been installed or is being re-run. Please remove manually if necessary."
+    echo -e "${RED}Invalid option. Exiting.${NC}"
     exit 1
 fi
