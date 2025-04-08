@@ -40,13 +40,21 @@ ENV_FILE="/etc/t3rn-executor-v2.env"
 
 mkdir -p "$INSTALL_DIR" && cd "$INSTALL_DIR"
 
-TAG=$(curl -s https://api.github.com/repos/t3rn/executor-release/releases/latest | awk -F '"' '/tag_name/ {print $4}')
-wget -q "https://github.com/t3rn/executor-release/releases/download/$TAG/executor-linux-$TAG.tar.gz"
+TAG=$(curl -s https://api.github.com/repos/t3rn/executor-release/releases/latest | jq -r '.tag_name')
+[[ -z "$TAG" || "$TAG" == "null" ]] && { log "ERROR" "Gagal mendapatkan versi terbaru dari GitHub!"; exit 1; }
 
-tar -xzf executor-linux-*.tar.gz
-cd executor/executor/bin || exit 1
+log "INFO" "Menggunakan versi: $TAG"
+
+EXECUTOR_URL="https://github.com/t3rn/executor-release/releases/download/$TAG/executor-linux-$TAG.tar.gz"
+log "INFO" "Mengunduh $EXECUTOR_URL"
+
+wget -q --show-progress "$EXECUTOR_URL" -O "executor-linux.tar.gz"
+
+tar -xzf executor-linux.tar.gz || { log "ERROR" "Gagal mengekstrak file!"; exit 1; }
+cd executor/executor/bin || { log "ERROR" "Direktori executor tidak ditemukan!"; exit 1; }
 
 cat <<EOF | sudo tee "$ENV_FILE" >/dev/null
+
 
 RPC_ENDPOINTS='{
   "l2rn": ["https://t3rn-b2n.blockpi.network/v1/rpc/public", "https://b2n.rpc.caldera.xyz/http"],
