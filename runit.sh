@@ -7,8 +7,6 @@ YELLOW='\033[0;33m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
-# Display banner
-curl -s https://file.winsnip.xyz/file/uploads/Logo-winsip.sh | bash
 echo "T3rn Executor v2 Installer"
 sleep 2
 
