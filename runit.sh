@@ -26,25 +26,50 @@ log() {
     echo -e "${border}\n"
 }
 
-echo -e "${CYAN}Starting Auto Install T3rn Executor v2${NC}"
-sleep 2
+install_dependencies() {
+    log "INFO" "Installing dependencies"
+    sudo apt update && sudo apt upgrade -y
+    sudo apt install -y net-tools jq
+}
 
-log "INFO" "1. Update system"
-sudo apt update && sudo apt upgrade -y
+remove_executor() {
+    log "INFO" "Removing Executor v2"
+    sudo systemctl stop t3rn-executor-v2.service
+    sudo systemctl disable t3rn-executor-v2.service
+    sudo rm /etc/systemd/system/t3rn-executor-v2.service
+    sudo rm -rf $INSTALL_DIR
+    sudo systemctl daemon-reload
+    log "SUCCESS" "Executor v2 removed successfully."
+}
 
-# Handle credentials
-if [[ -f "$CONFIG_FILE" ]]; then
-    log "INFO" "Credentials file detected."
-    read -p "Do you want to reuse the saved PRIVATE_KEY_LOCAL and APIKEY_ALCHEMY? (y/n): " reuse_keys
+install_executor() {
+    log "INFO" "1. Update system"
+    install_dependencies
 
-    if [[ "$reuse_keys" == "y" || "$reuse_keys" == "Y" ]]; then
-        PRIVATE_KEY_LOCAL=$(jq -r '.PRIVATE_KEY_LOCAL' "$CONFIG_FILE")
-        APIKEY_ALCHEMY=$(jq -r '.APIKEY_ALCHEMY' "$CONFIG_FILE")
-        if [[ -z "$PRIVATE_KEY_LOCAL" || -z "$APIKEY_ALCHEMY" ]]; then
-            log "ERROR" "Saved values are incomplete. You must enter new ones."
-            exit 1
+    # Handle credentials
+    if [[ -f "$CONFIG_FILE" ]]; then
+        log "INFO" "Credentials file detected."
+        read -p "Do you want to reuse the saved PRIVATE_KEY_LOCAL and APIKEY_ALCHEMY? (y/n): " reuse_keys
+
+        if [[ "$reuse_keys" == "y" || "$reuse_keys" == "Y" ]]; then
+            PRIVATE_KEY_LOCAL=$(jq -r '.PRIVATE_KEY_LOCAL' "$CONFIG_FILE")
+            APIKEY_ALCHEMY=$(jq -r '.APIKEY_ALCHEMY' "$CONFIG_FILE")
+            if [[ -z "$PRIVATE_KEY_LOCAL" || -z "$APIKEY_ALCHEMY" ]]; then
+                log "ERROR" "Saved values are incomplete. You must enter new ones."
+                exit 1
+            fi
+            log "SUCCESS" "Using saved credentials."
+        else
+            read -p "Enter PRIVATE_KEY_LOCAL: " PRIVATE_KEY_LOCAL
+            [[ -z "$PRIVATE_KEY_LOCAL" ]] && { log "ERROR" "PRIVATE_KEY_LOCAL cannot be empty!"; exit 1; }
+
+            read -p "Enter APIKEY_ALCHEMY: " APIKEY_ALCHEMY
+            [[ -z "$APIKEY_ALCHEMY" ]] && { log "ERROR" "APIKEY_ALCHEMY cannot be empty!"; exit 1; }
+
+            # Save credentials in the config file
+            echo "{\"PRIVATE_KEY_LOCAL\":\"$PRIVATE_KEY_LOCAL\", \"APIKEY_ALCHEMY\":\"$APIKEY_ALCHEMY\"}" > "$CONFIG_FILE"
+            log "SUCCESS" "Credentials saved to $CONFIG_FILE"
         fi
-        log "SUCCESS" "Using saved credentials."
     else
         read -p "Enter PRIVATE_KEY_LOCAL: " PRIVATE_KEY_LOCAL
         [[ -z "$PRIVATE_KEY_LOCAL" ]] && { log "ERROR" "PRIVATE_KEY_LOCAL cannot be empty!"; exit 1; }
@@ -56,51 +81,40 @@ if [[ -f "$CONFIG_FILE" ]]; then
         echo "{\"PRIVATE_KEY_LOCAL\":\"$PRIVATE_KEY_LOCAL\", \"APIKEY_ALCHEMY\":\"$APIKEY_ALCHEMY\"}" > "$CONFIG_FILE"
         log "SUCCESS" "Credentials saved to $CONFIG_FILE"
     fi
-else
-    read -p "Enter PRIVATE_KEY_LOCAL: " PRIVATE_KEY_LOCAL
-    [[ -z "$PRIVATE_KEY_LOCAL" ]] && { log "ERROR" "PRIVATE_KEY_LOCAL cannot be empty!"; exit 1; }
 
-    read -p "Enter APIKEY_ALCHEMY: " APIKEY_ALCHEMY
-    [[ -z "$APIKEY_ALCHEMY" ]] && { log "ERROR" "APIKEY_ALCHEMY cannot be empty!"; exit 1; }
+    mkdir -p "$INSTALL_DIR" && cd "$INSTALL_DIR"
 
-    # Save credentials in the config file
-    echo "{\"PRIVATE_KEY_LOCAL\":\"$PRIVATE_KEY_LOCAL\", \"APIKEY_ALCHEMY\":\"$APIKEY_ALCHEMY\"}" > "$CONFIG_FILE"
-    log "SUCCESS" "Credentials saved to $CONFIG_FILE"
-fi
+    # Get latest version tag
+    log "INFO" "Checking latest version from GitHub"
+    TAG=$(curl -s https://api.github.com/repos/t3rn/executor-release/releases/latest | awk -F '\"' '/tag_name/ {print $4}')
 
-mkdir -p "$INSTALL_DIR" && cd "$INSTALL_DIR"
-
-# Get latest version tag
-log "INFO" "Checking latest version from GitHub"
-TAG=$(curl -s https://api.github.com/repos/t3rn/executor-release/releases/latest | awk -F '\"' '/tag_name/ {print $4}')
-
-if [[ -f "$INSTALL_DIR/.version" ]]; then
-    OLD_TAG=$(<"$INSTALL_DIR/.version")
-    if [[ "$OLD_TAG" == "$TAG" ]]; then
-        log "SUCCESS" "Latest version ($TAG) already installed. Skipping download."
+    if [[ -f "$INSTALL_DIR/.version" ]]; then
+        OLD_TAG=$(<"$INSTALL_DIR/.version")
+        if [[ "$OLD_TAG" == "$TAG" ]]; then
+            log "SUCCESS" "Latest version ($TAG) already installed. Skipping download."
+        else
+            log "INFO" "New version found: $TAG (old: $OLD_TAG). Downloading..."
+            DOWNLOAD=1
+        fi
     else
-        log "INFO" "New version found: $TAG (old: $OLD_TAG). Downloading..."
         DOWNLOAD=1
     fi
-else
-    DOWNLOAD=1
-fi
 
-if [[ "$DOWNLOAD" == "1" ]]; then
-    wget -q "https://github.com/t3rn/executor-release/releases/download/$TAG/executor-linux-$TAG.tar.gz"
-    tar -xzf executor-linux-*.tar.gz
-    echo "$TAG" > "$INSTALL_DIR/.version"
-fi
+    if [[ "$DOWNLOAD" == "1" ]]; then
+        wget -q "https://github.com/t3rn/executor-release/releases/download/$TAG/executor-linux-$TAG.tar.gz"
+        tar -xzf executor-linux-*.tar.gz
+        echo "$TAG" > "$INSTALL_DIR/.version"
+    fi
 
-cd executor/executor/bin || exit 1
+    cd executor/executor/bin || exit 1
 
-# Write systemd service
-is_port_in_use() { netstat -tuln | grep -q ":$1"; }
-PORT=9090
-while is_port_in_use $PORT; do PORT=$((PORT + 1)); done
-log "INFO" "Using port $PORT"
+    # Write systemd service
+    is_port_in_use() { netstat -tuln | grep -q ":$1"; }
+    PORT=9090
+    while is_port_in_use $PORT; do PORT=$((PORT + 1)); done
+    log "INFO" "Using port $PORT"
 
-cat <<EOF | sudo tee "$SERVICE_FILE" >/dev/null
+    cat <<EOF | sudo tee "$SERVICE_FILE" >/dev/null
 [Unit]
 Description=t3rn Executor v2 Service
 After=network.target
@@ -129,8 +143,24 @@ Environment=EXECUTOR_PROCESS_PENDING_ORDERS_FROM_API=true
 WantedBy=multi-user.target
 EOF
 
-sudo systemctl daemon-reload
-sudo systemctl enable --now t3rn-executor-v2.service
+    sudo systemctl daemon-reload
+    sudo systemctl enable --now t3rn-executor-v2.service
 
-log "SUCCESS" "✅ Executor v2 successfully installed and running on port $PORT!"
-exec sudo journalctl -u t3rn-executor-v2.service -f --no-hostname -o cat
+    log "SUCCESS" "✅ Executor v2 successfully installed and running on port $PORT!"
+    exec sudo journalctl -u t3rn-executor-v2.service -f --no-hostname -o cat
+}
+
+# Main script execution
+log "INFO" "Select an option:"
+echo "1) Install T3rn Executor v2"
+echo "2) Remove T3rn Executor v2"
+read -p "Enter your choice (1 or 2): " choice
+
+if [[ "$choice" == "1" ]]; then
+    install_executor
+elif [[ "$choice" == "2" ]]; then
+    remove_executor
+else
+    log "ERROR" "Invalid option selected! Please choose 1 or 2."
+    exit 1
+fi
