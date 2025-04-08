@@ -7,10 +7,8 @@ YELLOW='\033[0;33m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
-INSTALL_DIR="$HOME/t3rn-v2"
-SERVICE_FILE="/etc/systemd/system/t3rn-executor-v2.service"
-ENV_FILE="/etc/t3rn-executor-v2.env"
-CONFIG_FILE="$HOME/.t3rn_config.json"
+echo "Starting Auto Install T3rn Executor v2"
+sleep 5
 
 log() {
     local level=$1
@@ -27,90 +25,29 @@ log() {
     echo -e "${border}\n"
 }
 
-install_dependencies() {
-    log "INFO" "Installing dependencies"
-    sudo apt update && sudo apt upgrade -y
-    sudo apt install -y net-tools jq
-}
+log "INFO" "1. Update system"
+sudo apt update && sudo apt upgrade -y
 
-remove_executor() {
-    log "INFO" "Removing Executor v2"
-    sudo systemctl stop t3rn-executor-v2.service
-    sudo systemctl disable t3rn-executor-v2.service
-    sudo rm /etc/systemd/system/t3rn-executor-v2.service
-    sudo rm -rf $INSTALL_DIR
-    sudo systemctl daemon-reload
-    log "SUCCESS" "Executor v2 removed successfully."
-}
+read -p "Enter PRIVATE_KEY_LOCAL: " PRIVATE_KEY_LOCAL
+[[ -z "$PRIVATE_KEY_LOCAL" ]] && { log "ERROR" "PRIVATE_KEY_LOCAL cannot be empty!"; exit 1; }
 
-install_executor() {
-    log "INFO" "1. Update system"
-    install_dependencies
+read -p "Enter APIKEY_ALCHEMY: " APIKEY_ALCHEMY
+[[ -z "$APIKEY_ALCHEMY" ]] && { log "ERROR" "APIKEY_ALCHEMY cannot be empty!"; exit 1; }
 
-    # Handle credentials
-    if [[ -f "$CONFIG_FILE" ]]; then
-        log "INFO" "Credentials file detected."
-        read -p "Do you want to reuse the saved PRIVATE_KEY_LOCAL and APIKEY_ALCHEMY? (y/n): " reuse_keys
+INSTALL_DIR="$HOME/t3rn-v2"
+SERVICE_FILE="/etc/systemd/system/t3rn-executor-v2.service"
+ENV_FILE="/etc/t3rn-executor-v2.env"
 
-        if [[ "$reuse_keys" == "y" || "$reuse_keys" == "Y" ]]; then
-            PRIVATE_KEY_LOCAL=$(jq -r '.PRIVATE_KEY_LOCAL' "$CONFIG_FILE")
-            APIKEY_ALCHEMY=$(jq -r '.APIKEY_ALCHEMY' "$CONFIG_FILE")
-            if [[ -z "$PRIVATE_KEY_LOCAL" || -z "$APIKEY_ALCHEMY" ]]; then
-                log "ERROR" "Saved values are incomplete. You must enter new ones."
-                exit 1
-            fi
-            log "SUCCESS" "Using saved credentials."
-        else
-            read -p "Enter PRIVATE_KEY_LOCAL: " PRIVATE_KEY_LOCAL
-            [[ -z "$PRIVATE_KEY_LOCAL" ]] && { log "ERROR" "PRIVATE_KEY_LOCAL cannot be empty!"; exit 1; }
+mkdir -p "$INSTALL_DIR" && cd "$INSTALL_DIR"
 
-            read -p "Enter APIKEY_ALCHEMY: " APIKEY_ALCHEMY
-            [[ -z "$APIKEY_ALCHEMY" ]] && { log "ERROR" "APIKEY_ALCHEMY cannot be empty!"; exit 1; }
+TAG=$(curl -s https://api.github.com/repos/t3rn/executor-release/releases/latest | awk -F '"' '/tag_name/ {print $4}')
+wget -q "https://github.com/t3rn/executor-release/releases/download/$TAG/executor-linux-$TAG.tar.gz"
 
-            # Save credentials in the config file
-            echo "{\"PRIVATE_KEY_LOCAL\":\"$PRIVATE_KEY_LOCAL\", \"APIKEY_ALCHEMY\":\"$APIKEY_ALCHEMY\"}" > "$CONFIG_FILE"
-            log "SUCCESS" "Credentials saved to $CONFIG_FILE"
-        fi
-    else
-        read -p "Enter PRIVATE_KEY_LOCAL: " PRIVATE_KEY_LOCAL
-        [[ -z "$PRIVATE_KEY_LOCAL" ]] && { log "ERROR" "PRIVATE_KEY_LOCAL cannot be empty!"; exit 1; }
+tar -xzf executor-linux-*.tar.gz
+cd executor/executor/bin || exit 1
 
-        read -p "Enter APIKEY_ALCHEMY: " APIKEY_ALCHEMY
-        [[ -z "$APIKEY_ALCHEMY" ]] && { log "ERROR" "APIKEY_ALCHEMY cannot be empty!"; exit 1; }
-
-        # Save credentials in the config file
-        echo "{\"PRIVATE_KEY_LOCAL\":\"$PRIVATE_KEY_LOCAL\", \"APIKEY_ALCHEMY\":\"$APIKEY_ALCHEMY\"}" > "$CONFIG_FILE"
-        log "SUCCESS" "Credentials saved to $CONFIG_FILE"
-    fi
-
-    mkdir -p "$INSTALL_DIR" && cd "$INSTALL_DIR"
-
-    # Get latest version tag
-    log "INFO" "Checking latest version from GitHub"
-    TAG=$(curl -s https://api.github.com/repos/t3rn/executor-release/releases/latest | awk -F '\"' '/tag_name/ {print $4}')
-
-    if [[ -f "$INSTALL_DIR/.version" ]]; then
-        OLD_TAG=$(<"$INSTALL_DIR/.version")
-        if [[ "$OLD_TAG" == "$TAG" ]]; then
-            log "SUCCESS" "Latest version ($TAG) already installed. Skipping download."
-        else
-            log "INFO" "New version found: $TAG (old: $OLD_TAG). Downloading..."
-            DOWNLOAD=1
-        fi
-    else
-        DOWNLOAD=1
-    fi
-
-    if [[ "$DOWNLOAD" == "1" ]]; then
-        wget -q "https://github.com/t3rn/executor-release/releases/download/$TAG/executor-linux-$TAG.tar.gz"
-        tar -xzf executor-linux-*.tar.gz
-        echo "$TAG" > "$INSTALL_DIR/.version"
-    fi
-
-    cd executor/executor/bin || exit 1
-
-    # Write RPC_ENDPOINTS to the .env file
-    cat <<EOF | sudo tee "$ENV_FILE" >/dev/null
+# Save RPC endpoints and API keys to a separate file
+cat <<EOF | sudo tee "$ENV_FILE" >/dev/null
 RPC_ENDPOINTS='{
   "l2rn": ["http://b2n.rpc.caldera.xyz/http"],
   "arbt": ["https://arbitrum-sepolia.drpc.org", "https://arb-sepolia.g.alchemy.com/v2/$APIKEY_ALCHEMY"],
@@ -122,13 +59,20 @@ RPC_ENDPOINTS='{
 }'
 EOF
 
-    # Set environment variables for the executor service
-    is_port_in_use() { netstat -tuln | grep -q ":$1"; }
-    PORT=9090
-    while is_port_in_use $PORT; do PORT=$((PORT + 1)); done
-    log "INFO" "Using port $PORT"
+is_port_in_use() { netstat -tuln | grep -q ":$1"; }
 
-    cat <<EOF | sudo tee "$SERVICE_FILE" >/dev/null
+PORT=9090
+while is_port_in_use $PORT; do
+    PORT=$((PORT + 1))
+done
+
+log "INFO" "Using port $PORT"
+
+sudo chown -R "$USER:$USER" "$INSTALL_DIR"
+sudo chmod 600 "$ENV_FILE"
+
+# Create service file with properly formatted environment variables
+cat <<EOF | sudo tee "$SERVICE_FILE" >/dev/null
 [Unit]
 Description=t3rn Executor v2 Service
 After=network.target
@@ -148,8 +92,8 @@ Environment=EXECUTOR_PROCESS_CLAIMS_ENABLED=true
 Environment=EXECUTOR_MAX_L3_GAS_PRICE=5000
 Environment=EXECUTOR_MIN_TX_ETH=2
 Environment=EXECUTOR_MAX_TX_GAS=2000000
-Environment=PRIVATE_KEY_LOCAL=$PRIVATE_KEY_LOCAL
-Environment=APIKEY_ALCHEMY=$APIKEY_ALCHEMY
+Environment=PRIVATE_KEY_LOCAL=${PRIVATE_KEY_LOCAL:-"your_default_private_key"}
+Environment=APIKEY_ALCHEMY=${APIKEY_ALCHEMY:-"your_default_apikey"}
 Environment=ENABLED_NETWORKS=arbitrum-sepolia,base-sepolia,optimism-sepolia,l2rn,unichain-sepolia,mont
 Environment=EXECUTOR_PROCESS_PENDING_ORDERS_FROM_API=true
 EnvironmentFile=$ENV_FILE
@@ -158,24 +102,8 @@ EnvironmentFile=$ENV_FILE
 WantedBy=multi-user.target
 EOF
 
-    sudo systemctl daemon-reload
-    sudo systemctl enable --now t3rn-executor-v2.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now t3rn-executor-v2.service
 
-    log "SUCCESS" "✅ Executor v2 successfully installed and running on port $PORT!"
-    exec sudo journalctl -u t3rn-executor-v2.service -f --no-hostname -o cat
-}
-
-# Main script execution
-log "INFO" "Select an option:"
-echo "1) Install T3rn Executor v2"
-echo "2) Remove T3rn Executor v2"
-read -p "Enter your choice (1 or 2): " choice
-
-if [[ "$choice" == "1" ]]; then
-    install_executor
-elif [[ "$choice" == "2" ]]; then
-    remove_executor
-else
-    log "ERROR" "Invalid option selected! Please choose 1 or 2."
-    exit 1
-fi
+log "SUCCESS" "✅ Executor v2 successfully installed and running on port $PORT!"
+exec sudo journalctl -u t3rn-executor-v2.service -f --no-hostname -o cat
