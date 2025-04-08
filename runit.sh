@@ -91,17 +91,14 @@ cd executor/executor/bin || exit 1
 cat <<EOF | sudo tee "$ENV_FILE" >/dev/null
 PRIVATE_KEY_LOCAL=$PRIVATE_KEY_LOCAL
 APIKEY_ALCHEMY=$APIKEY_ALCHEMY
-RPC_ENDPOINTS=$(cat <<JSON
-{
+RPC_ENDPOINTS='{
   "l2rn": ["https://t3rn-b2n.blockpi.network/v1/rpc/public", "https://b2n.rpc.caldera.xyz/http"],
   "arbt": ["https://arbitrum-sepolia.drpc.org", "https://arb-sepolia.g.alchemy.com/v2/$APIKEY_ALCHEMY"],
   "bast": ["https://base-sepolia-rpc.publicnode.com", "https://base-sepolia.g.alchemy.com/v2/$APIKEY_ALCHEMY"],
   "opst": ["https://sepolia.optimism.io", "https://opt-sepolia.g.alchemy.com/v2/$APIKEY_ALCHEMY"],
   "unit": ["https://unichain-sepolia.drpc.org", "https://unichain-sepolia.g.alchemy.com/v2/$APIKEY_ALCHEMY"],
   "mont": ["https://testnet-rpc.monad.xyz", "https://monad-testnet.g.alchemy.com/v2/$APIKEY_ALCHEMY"]
-}
-JSON
-)
+}'
 EOF
 
 sudo chmod 600 "$ENV_FILE"
