@@ -28,11 +28,27 @@ log() {
 log "INFO" "1. Update system"
 sudo apt update && sudo apt upgrade -y
 
+# Ask for PRIVATE_KEY_LOCAL and APIKEY_ALCHEMY
 read -p "Enter PRIVATE_KEY_LOCAL: " PRIVATE_KEY_LOCAL
 [[ -z "$PRIVATE_KEY_LOCAL" ]] && { log "ERROR" "PRIVATE_KEY_LOCAL cannot be empty!"; exit 1; }
 
 read -p "Enter APIKEY_ALCHEMY: " APIKEY_ALCHEMY
 [[ -z "$APIKEY_ALCHEMY" ]] && { log "ERROR" "APIKEY_ALCHEMY cannot be empty!"; exit 1; }
+
+# Ask if user wants to store these keys
+read -p "Do you want to store these keys securely? (y/n): " STORE_KEYS
+
+if [[ "$STORE_KEYS" == "y" ]]; then
+    SECRETS_FILE="$HOME/.t3rn-secrets"
+    
+    # Create secrets file and store the keys
+    echo "Storing private key and API key in $SECRETS_FILE"
+    echo "PRIVATE_KEY_LOCAL=$PRIVATE_KEY_LOCAL" > "$SECRETS_FILE"
+    echo "APIKEY_ALCHEMY=$APIKEY_ALCHEMY" >> "$SECRETS_FILE"
+    chmod 600 "$SECRETS_FILE"
+else
+    SECRETS_FILE="none"
+fi
 
 INSTALL_DIR="$HOME/t3rn-v2"
 SERVICE_FILE="/etc/systemd/system/t3rn-executor-v2.service"
@@ -46,16 +62,16 @@ wget -q "https://github.com/t3rn/executor-release/releases/download/$TAG/executo
 tar -xzf executor-linux-*.tar.gz
 cd executor/executor/bin || exit 1
 
-# Save RPC endpoints and API keys to a separate file
+# Save RPC endpoints to the env file
 cat <<EOF | sudo tee "$ENV_FILE" >/dev/null
 RPC_ENDPOINTS='{
   "l2rn": ["http://b2n.rpc.caldera.xyz/http"],
-  "arbt": ["https://arbitrum-sepolia.drpc.org", "https://arb-sepolia.g.alchemy.com/v2/$APIKEY_ALCHEMY"],
-  "bast": ["https://base-sepolia-rpc.publicnode.com", "https://base-sepolia.g.alchemy.com/v2/$APIKEY_ALCHEMY"],
-  "blst": ["https://sepolia.blast.io", "https://blast-sepolia.g.alchemy.com/v2/$APIKEY_ALCHEMY"],
-  "opst": ["https://sepolia.optimism.io", "https://opt-sepolia.g.alchemy.com/v2/$APIKEY_ALCHEMY"],
-  "mont": ["https://testnet-rpc.monad.xyz", "https://monad-testnet.g.alchemy.com/v2/$APIKEY_ALCHEMY"],
-  "unit": ["https://unichain-sepolia.drpc.org", "https://unichain-sepolia.g.alchemy.com/v2/$APIKEY_ALCHEMY"]
+  "arbt": ["https://arbitrum-sepolia.drpc.org", "https://arb-sepolia.g.alchemy.com/v2/\$APIKEY_ALCHEMY"],
+  "bast": ["https://base-sepolia-rpc.publicnode.com", "https://base-sepolia.g.alchemy.com/v2/\$APIKEY_ALCHEMY"],
+  "blst": ["https://sepolia.blast.io", "https://blast-sepolia.g.alchemy.com/v2/\$APIKEY_ALCHEMY"],
+  "opst": ["https://sepolia.optimism.io", "https://opt-sepolia.g.alchemy.com/v2/\$APIKEY_ALCHEMY"],
+  "mont": ["https://testnet-rpc.monad.xyz", "https://monad-testnet.g.alchemy.com/v2/\$APIKEY_ALCHEMY"],
+  "unit": ["https://unichain-sepolia.drpc.org", "https://unichain-sepolia.g.alchemy.com/v2/\$APIKEY_ALCHEMY"]
 }'
 EOF
 
@@ -71,7 +87,7 @@ log "INFO" "Using port $PORT"
 sudo chown -R "$USER:$USER" "$INSTALL_DIR"
 sudo chmod 600 "$ENV_FILE"
 
-# Create service file with properly formatted environment variables
+# Create systemd service file
 cat <<EOF | sudo tee "$SERVICE_FILE" >/dev/null
 [Unit]
 Description=t3rn Executor v2 Service
@@ -97,6 +113,7 @@ Environment=APIKEY_ALCHEMY=${APIKEY_ALCHEMY:-"your_default_apikey"}
 Environment=ENABLED_NETWORKS=arbitrum-sepolia,base-sepolia,optimism-sepolia,l2rn,unichain-sepolia,mont
 Environment=EXECUTOR_PROCESS_PENDING_ORDERS_FROM_API=true
 EnvironmentFile=$ENV_FILE
+EnvironmentFile=$SECRETS_FILE
 
 [Install]
 WantedBy=multi-user.target
@@ -107,3 +124,7 @@ sudo systemctl enable --now t3rn-executor-v2.service
 
 log "SUCCESS" "✅ Executor v2 successfully installed and running on port $PORT!"
 exec sudo journalctl -u t3rn-executor-v2.service -f --no-hostname -o cat
+
+# Removal instructions
+echo -e "${RED}To remove the script and its components, run the following command:${NC}"
+echo -e "${CYAN}sudo systemctl stop t3rn-executor-v2.service && sudo systemctl disable t3rn-executor-v2.service && sudo rm /etc/systemd/system/t3rn-executor-v2.service && sudo rm -rf /home/\$USER/t3rn-v2 && sudo systemctl daemon-reload${NC}"
