@@ -150,9 +150,9 @@ remove_executor() {
 # Function to select version
 select_version() {
     local VERSIONS=$(get_available_versions)
-    local MIN_VERSION="v0.59.0"
+    local MIN_VERSION="v0.58.0"
     
-    # Filter versions from v0.59.0 onwards
+    # Filter versions from v0.58.0 onwards
     local FILTERED_VERSIONS=$(echo "$VERSIONS" | awk -v min="$MIN_VERSION" '$1 >= min')
     
     if [ -z "$FILTERED_VERSIONS" ]; then
